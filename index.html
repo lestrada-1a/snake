@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snake Game</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #e0e0e0;
+      user-select: none;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      color: #4ecca3;
+      text-shadow: 0 0 10px rgba(78, 204, 163, 0.5);
+      letter-spacing: 4px;
+    }
+
+    #scoreboard {
+      display: flex;
+      gap: 3rem;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+    }
+
+    .score-item span {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #4ecca3;
+    }
+
+    #canvas-wrapper {
+      position: relative;
+      border: 3px solid #4ecca3;
+      box-shadow: 0 0 20px rgba(78, 204, 163, 0.4);
+      border-radius: 4px;
+    }
+
+    canvas {
+      display: block;
+      background: #16213e;
+      cursor: crosshair;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(22, 33, 62, 0.88);
+      border-radius: 2px;
+    }
+
+    #overlay h2 {
+      font-size: 2rem;
+      color: #e94560;
+      margin-bottom: 0.5rem;
+    }
+
+    #overlay p {
+      font-size: 1rem;
+      color: #aaa;
+      margin-bottom: 1.5rem;
+    }
+
+    #overlay .final-score {
+      font-size: 1.3rem;
+      color: #4ecca3;
+      margin-bottom: 1.5rem;
+    }
+
+    button#restart-btn {
+      padding: 0.6rem 2rem;
+      font-size: 1.1rem;
+      background: #4ecca3;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    button#restart-btn:hover {
+      background: #38b18c;
+    }
+
+    button#restart-btn:active {
+      transform: scale(0.97);
+    }
+
+    #instructions {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      color: #666;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐍 SNAKE</h1>
+
+  <div id="scoreboard">
+    <div class="score-item">Score: <span id="score">0</span></div>
+    <div class="score-item">Best: <span id="best">0</span></div>
+  </div>
+
+  <div id="canvas-wrapper">
+    <canvas id="game-canvas" width="400" height="400"></canvas>
+    <div id="overlay">
+      <h2 id="overlay-title">SNAKE</h2>
+      <p id="overlay-subtitle">Use arrow keys, WASD, or click/tap to steer</p>
+      <div id="final-score-display" class="final-score" style="display:none;"></div>
+      <button id="restart-btn">▶ Start</button>
+    </div>
+  </div>
+
+  <div id="instructions">Arrow keys / WASD to move &nbsp;|&nbsp; Click or tap to steer</div>
+
+  <script>
+    const COLS = 20;
+    const ROWS = 20;
+    const CELL = 20; // px per cell
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlaySub = document.getElementById('overlay-subtitle');
+    const finalScoreDisplay = document.getElementById('final-score-display');
+    const restartBtn = document.getElementById('restart-btn');
+
+    canvas.width = COLS * CELL;
+    canvas.height = ROWS * CELL;
+
+    // --- State ---
+    let snake, dir, nextDir, food, score, bestScore, running, gameLoop;
+    bestScore = parseInt(localStorage.getItem('snakeBest') || '0', 10);
+    bestEl.textContent = bestScore;
+
+    // Direction vectors
+    const DIR = {
+      UP:    { x: 0,  y: -1 },
+      DOWN:  { x: 0,  y:  1 },
+      LEFT:  { x: -1, y:  0 },
+      RIGHT: { x: 1,  y:  0 },
+    };
+
+    function opposite(a, b) {
+      return a.x === -b.x && a.y === -b.y;
+    }
+
+    // --- Init ---
+    function init() {
+      const startX = Math.floor(COLS / 2);
+      const startY = Math.floor(ROWS / 2);
+      snake = [
+        { x: startX,     y: startY },
+        { x: startX - 1, y: startY },
+        { x: startX - 2, y: startY },
+      ];
+      dir = DIR.RIGHT;
+      nextDir = DIR.RIGHT;
+      score = 0;
+      scoreEl.textContent = score;
+      spawnFood();
+    }
+
+    function spawnFood() {
+      let pos;
+      do {
+        pos = {
+          x: Math.floor(Math.random() * COLS),
+          y: Math.floor(Math.random() * ROWS),
+        };
+      } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+      food = pos;
+    }
+
+    // --- Game tick ---
+    function tick() {
+      dir = nextDir;
+      const head = snake[0];
+      const newHead = { x: head.x + dir.x, y: head.y + dir.y };
+
+      // Wall collision
+      if (newHead.x < 0 || newHead.x >= COLS || newHead.y < 0 || newHead.y >= ROWS) {
+        endGame();
+        return;
+      }
+
+      // Self collision (skip the tail tip which will move away)
+      for (let i = 0; i < snake.length - 1; i++) {
+        if (snake[i].x === newHead.x && snake[i].y === newHead.y) {
+          endGame();
+          return;
+        }
+      }
+
+      const ateFood = newHead.x === food.x && newHead.y === food.y;
+
+      snake.unshift(newHead);
+      if (ateFood) {
+        score++;
+        scoreEl.textContent = score;
+        spawnFood();
+      } else {
+        snake.pop();
+      }
+
+      draw();
+    }
+
+    // --- Drawing ---
+    function draw() {
+      // Clear
+      ctx.fillStyle = '#16213e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid (subtle)
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 0.5;
+      for (let c = 0; c <= COLS; c++) {
+        ctx.beginPath();
+        ctx.moveTo(c * CELL, 0);
+        ctx.lineTo(c * CELL, canvas.height);
+        ctx.stroke();
+      }
+      for (let r = 0; r <= ROWS; r++) {
+        ctx.beginPath();
+        ctx.moveTo(0, r * CELL);
+        ctx.lineTo(canvas.width, r * CELL);
+        ctx.stroke();
+      }
+
+      // Food
+      const fx = food.x * CELL + CELL / 2;
+      const fy = food.y * CELL + CELL / 2;
+      ctx.fillStyle = '#e94560';
+      ctx.beginPath();
+      ctx.arc(fx, fy, CELL / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Snake body
+      snake.forEach((seg, i) => {
+        const ratio = 1 - i / snake.length;
+        const r = Math.round(78 * ratio + 30 * (1 - ratio));
+        const g = Math.round(204 * ratio + 80 * (1 - ratio));
+        const b = Math.round(163 * ratio + 60 * (1 - ratio));
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+
+        const margin = i === 0 ? 1 : 2;
+        const size = CELL - margin * 2;
+        ctx.beginPath();
+        ctx.roundRect(seg.x * CELL + margin, seg.y * CELL + margin, size, size, i === 0 ? 4 : 2);
+        ctx.fill();
+      });
+
+      // Eyes on head
+      drawEyes();
+    }
+
+    function drawEyes() {
+      const head = snake[0];
+      const cx = head.x * CELL;
+      const cy = head.y * CELL;
+
+      // Determine eye offsets based on direction
+      let eye1, eye2;
+      if (dir.x === 1) {       // RIGHT
+        eye1 = { x: cx + 14, y: cy + 5 };
+        eye2 = { x: cx + 14, y: cy + 13 };
+      } else if (dir.x === -1) { // LEFT
+        eye1 = { x: cx + 5,  y: cy + 5 };
+        eye2 = { x: cx + 5,  y: cy + 13 };
+      } else if (dir.y === -1) { // UP
+        eye1 = { x: cx + 5,  y: cy + 5 };
+        eye2 = { x: cx + 13, y: cy + 5 };
+      } else {                   // DOWN
+        eye1 = { x: cx + 5,  y: cy + 13 };
+        eye2 = { x: cx + 13, y: cy + 13 };
+      }
+
+      ctx.fillStyle = '#1a1a2e';
+      [eye1, eye2].forEach(e => {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    // --- Start / End ---
+    function startGame() {
+      overlay.style.display = 'none';
+      init();
+      running = true;
+      if (gameLoop) clearInterval(gameLoop);
+      gameLoop = setInterval(tick, 130);
+    }
+
+    function endGame() {
+      running = false;
+      clearInterval(gameLoop);
+
+      if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('snakeBest', bestScore);
+        bestEl.textContent = bestScore;
+      }
+
+      overlayTitle.textContent = 'GAME OVER';
+      overlaySub.textContent = '';
+      finalScoreDisplay.style.display = 'block';
+      finalScoreDisplay.textContent = `Score: ${score}${score === bestScore ? '  🏆 New Best!' : ''}`;
+      restartBtn.textContent = '▶ Play Again';
+      overlay.style.display = 'flex';
+    }
+
+    // --- Keyboard controls ---
+    document.addEventListener('keydown', e => {
+      switch (e.key) {
+        case 'ArrowUp':    case 'w': case 'W':
+          e.preventDefault();
+          if (!opposite(DIR.UP, dir)) nextDir = DIR.UP;
+          break;
+        case 'ArrowDown':  case 's': case 'S':
+          e.preventDefault();
+          if (!opposite(DIR.DOWN, dir)) nextDir = DIR.DOWN;
+          break;
+        case 'ArrowLeft':  case 'a': case 'A':
+          e.preventDefault();
+          if (!opposite(DIR.LEFT, dir)) nextDir = DIR.LEFT;
+          break;
+        case 'ArrowRight': case 'd': case 'D':
+          e.preventDefault();
+          if (!opposite(DIR.RIGHT, dir)) nextDir = DIR.RIGHT;
+          break;
+        case 'Enter': case ' ':
+          if (!running) startGame();
+          break;
+      }
+    });
+
+    // --- Mouse / Touch controls ---
+    // Click/tap steers the snake toward where the user clicked
+    function steerToward(clientX, clientY) {
+      if (!running) {
+        startGame();
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const mx = (clientX - rect.left) / (rect.width / COLS);
+      const my = (clientY - rect.top) / (rect.height / ROWS);
+
+      const head = snake[0];
+      const dx = mx - head.x;
+      const dy = my - head.y;
+
+      // Choose the dominant axis, but never reverse
+      let chosen = null;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const candidate = dx > 0 ? DIR.RIGHT : DIR.LEFT;
+        if (!opposite(candidate, dir)) chosen = candidate;
+      }
+      if (!chosen) {
+        const candidate = dy > 0 ? DIR.DOWN : DIR.UP;
+        if (!opposite(candidate, dir)) chosen = candidate;
+      }
+      if (!chosen) {
+        // Try the non-dominant axis as fallback
+        const candidate = dx > 0 ? DIR.RIGHT : DIR.LEFT;
+        if (!opposite(candidate, dir)) chosen = candidate;
+      }
+      if (chosen) nextDir = chosen;
+    }
+
+    canvas.addEventListener('click', e => steerToward(e.clientX, e.clientY));
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        steerToward(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+
+    // --- Swipe support ---
+    let touchStartX = 0, touchStartY = 0;
+    canvas.addEventListener('touchstart', e => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', e => {
+      if (!running) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; // tap handled by click
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const candidate = dx > 0 ? DIR.RIGHT : DIR.LEFT;
+        if (!opposite(candidate, dir)) nextDir = candidate;
+      } else {
+        const candidate = dy > 0 ? DIR.DOWN : DIR.UP;
+        if (!opposite(candidate, dir)) nextDir = candidate;
+      }
+    }, { passive: true });
+
+    // --- Restart button ---
+    restartBtn.addEventListener('click', startGame);
+
+    // --- Initial draw ---
+    init();
+    draw();
+  </script>
+</body>
+</html>
