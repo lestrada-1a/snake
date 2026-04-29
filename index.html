@@ -387,7 +387,7 @@
       }
       if (!chosen) {
         // Try the non-dominant axis as fallback
-        const candidate = dx > 0 ? DIR.RIGHT : DIR.LEFT;
+        const candidate = dy > 0 ? DIR.DOWN : DIR.UP;
         if (!opposite(candidate, dir)) chosen = candidate;
       }
       if (chosen) nextDir = chosen;
@@ -395,19 +395,16 @@
 
     canvas.addEventListener('click', e => steerToward(e.clientX, e.clientY));
 
+    // --- Touch: tap-to-steer + swipe support (single handler) ---
+    let touchStartX = 0, touchStartY = 0;
     canvas.addEventListener('touchstart', e => {
       e.preventDefault();
       if (e.touches.length > 0) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
         steerToward(e.touches[0].clientX, e.touches[0].clientY);
       }
     }, { passive: false });
-
-    // --- Swipe support ---
-    let touchStartX = 0, touchStartY = 0;
-    canvas.addEventListener('touchstart', e => {
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
-    }, { passive: true });
 
     canvas.addEventListener('touchend', e => {
       if (!running) return;
